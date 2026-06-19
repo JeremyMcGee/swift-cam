@@ -226,6 +226,7 @@ public class CameraService : BackgroundService, ICameraService
                         insideFrame = false;
 
                         var frameData = frameBuffer.ToArray();
+                        frameData = TimestampOverlay.Apply(frameData, _settings.Quality);
                         _broadcaster.PublishFrame(frameData);
 
                         frameBuffer.SetLength(0);
