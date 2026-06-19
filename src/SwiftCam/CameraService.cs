@@ -226,6 +226,7 @@ public class CameraService : BackgroundService, ICameraService
                         insideFrame = false;
 
                         var frameData = frameBuffer.ToArray();
+                        frameData = GreyscaleFilter.Apply(frameData, _settings.Quality);
                         frameData = TimestampOverlay.Apply(frameData, _settings.Quality);
                         _broadcaster.PublishFrame(frameData);
 

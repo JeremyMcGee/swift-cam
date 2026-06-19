@@ -9,7 +9,9 @@ This feature adds motion detection to the SwiftCam birdbox camera. A `MotionDete
 ```mermaid
 graph TD
     subgraph "Frame Pipeline"
-        A[CameraService] -->|PublishFrame| B[IFrameBroadcaster]
+        A[CameraService] -->|Raw JPEG| A1[GreyscaleFilter]
+        A1 -->|Greyscale JPEG| A2[TimestampOverlay]
+        A2 -->|PublishFrame| B[IFrameBroadcaster]
         B -->|Subscribe| C[MotionDetector]
         B -->|Subscribe| D[MJPEG Streaming Clients]
     end

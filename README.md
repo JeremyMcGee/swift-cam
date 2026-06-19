@@ -1,23 +1,30 @@
 # SwiftCam
 
-A lightweight MJPEG streaming server with motion-triggered image capture, designed for Raspberry Pi birdbox cameras.
+A lightweight MJPEG streaming server with motion-triggered image capture and automated audio attraction, designed for Raspberry Pi birdbox cameras.
 
 ## What it does
 
-SwiftCam captures video from a Raspberry Pi camera module and serves it as a live MJPEG stream over HTTP. In parallel, it watches for motion by comparing consecutive frames and saves a timestamped JPEG whenever significant change is detected — ideal for recording bird activity without manual intervention.
+SwiftCam captures video from a Raspberry Pi camera module and serves it as a live MJPEG stream over HTTP. In parallel, it watches for motion by comparing consecutive frames and saves a timestamped JPEG whenever significant change is detected. It also plays looped audio through an attached speaker during scheduled time windows to attract swifts to the birdbox — ideal for swift conservation without manual intervention.
 
 ## Features
 
 - **Live MJPEG streaming** — View your camera feed in any browser at `http://<pi-ip>:8080`
+- **Greyscale output** — Frames are converted to greyscale before streaming, eliminating the purple cast from NoIR camera modules
 - **Motion detection** — Pixel-level luminance differencing detects movement between frames
 - **Automatic capture** — Saves a JPEG when motion exceeds a configurable threshold
 - **Cooldown period** — Prevents burst captures during sustained motion
+- **Audio attraction** — Plays looped swift call audio during morning and evening windows calculated from solar events
+- **Weather-aware** — Automatically suppresses audio during rain or high wind (swifts don't fly in those conditions)
+- **Status API** — `GET /api/audio-status` returns current playback state as JSON
+- **Web status panel** — Audio state displayed alongside the camera stream
 - **Configurable sensitivity** — Tune threshold, pixel tolerance, and cooldown via `appsettings.json`
 - **Multi-client support** — Up to 10 simultaneous stream viewers, independent of motion detection
 
 ## Requirements
 
-- Raspberry Pi with a camera module (or `rpicam-vid`/`libcamera-vid` available)
+- Raspberry Pi with a camera module (standard or NoIR)
+- `rpicam-vid` or `libcamera-vid` available on the system
+- `mplayer` installed (for audio playback)
 - .NET 10 SDK
 
 ## Quick start
@@ -49,9 +56,21 @@ All settings live in `src/SwiftCam/appsettings.json`:
     "CooldownSeconds": 300,
     "CaptureDirectory": "captures",
     "PixelTolerance": 30
+  },
+  "Audio": {
+    "AudioFilePath": "audio/swift-call.mp3",
+    "Latitude": 51.9,
+    "Longitude": -2.07,
+    "MorningOffsetMinutes": 0,
+    "MorningDurationMinutes": 210,
+    "EveningPreSunsetMinutes": 150,
+    "WeatherPollIntervalMinutes": 15,
+    "WindSpeedThresholdKph": 40
   }
 }
 ```
+
+### Camera settings
 
 | Setting | Description | Default |
 |---------|-------------|---------|
@@ -59,10 +78,53 @@ All settings live in `src/SwiftCam/appsettings.json`:
 | `Camera:Height` | Capture height in pixels | 480 |
 | `Camera:Framerate` | Frames per second | 15 |
 | `Camera:Quality` | JPEG quality (1–100) | 80 |
+
+### Motion settings
+
+| Setting | Description | Default |
+|---------|-------------|---------|
 | `Motion:Threshold` | Percentage of changed pixels to trigger capture (0.1–100) | 5.0 |
 | `Motion:CooldownSeconds` | Seconds between captures (0–86400) | 300 |
 | `Motion:CaptureDirectory` | Output folder for captured images | captures |
 | `Motion:PixelTolerance` | Per-pixel luminance difference to count as "changed" (1–255) | 30 |
+
+### Audio settings
+
+| Setting | Description | Default | Range |
+|---------|-------------|---------|-------|
+| `Audio:AudioFilePath` | Path to the audio file to play | audio/swift-call.mp3 | Non-empty |
+| `Audio:Latitude` | Location latitude for solar calculations | 51.9 | -90 to 90 |
+| `Audio:Longitude` | Location longitude for solar calculations | -2.07 | -180 to 180 |
+| `Audio:MorningOffsetMinutes` | Offset from civil twilight for morning start | 0 | -60 to 240 |
+| `Audio:MorningDurationMinutes` | Length of morning playback window | 210 | 1 to 720 |
+| `Audio:EveningPreSunsetMinutes` | Minutes before sunset to start evening playback | 150 | 1 to 480 |
+| `Audio:WeatherPollIntervalMinutes` | How often to check weather conditions | 15 | 1 to 60 |
+| `Audio:WindSpeedThresholdKph` | Wind speed above which playback is suppressed | 40 | 1 to 120 |
+
+## Audio attraction
+
+The audio system plays a looped recording through an attached speaker to attract swifts to the birdbox. Playback is scheduled around two daily windows:
+
+- **Morning window** — Starts at civil twilight + offset, runs for the configured duration
+- **Evening window** — Starts before sunset, ends at sunset
+
+Playback is automatically suppressed during rain (precipitation > 0mm) or high wind (above threshold). The system polls the [Open-Meteo API](https://open-meteo.com/) for weather conditions.
+
+The audio state machine handles crashes gracefully — if mplayer terminates unexpectedly, it retries up to 5 times before entering an error state until the next window.
+
+### Status endpoint
+
+`GET /api/audio-status` returns JSON:
+
+```json
+{
+  "state": "Playing",
+  "reason": "Morning session",
+  "currentWindowStart": "2025-06-15T04:30:00Z",
+  "currentWindowEnd": "2025-06-15T08:00:00Z",
+  "nextWindowStart": "2025-06-15T18:30:00Z"
+}
+```
 
 ## Running tests
 
