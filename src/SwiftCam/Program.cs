@@ -40,6 +40,17 @@ public class Program
         builder.Services.AddSingleton<IValidateOptions<CameraSettings>, CameraSettingsValidator>();
         builder.Services.AddOptionsWithValidateOnStart<CameraSettings>();
 
+        // Bind MotionSettings from the "Motion" configuration section
+        builder.Services.Configure<MotionSettings>(builder.Configuration.GetSection("Motion"));
+        builder.Services.AddSingleton<IValidateOptions<MotionSettings>, MotionSettingsValidator>();
+        builder.Services.AddOptionsWithValidateOnStart<MotionSettings>();
+
+        // Register TimeProvider
+        builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+
+        // Register MotionDetector as hosted service
+        builder.Services.AddHostedService<MotionDetector>();
+
         // Register FrameBroadcaster as singleton
         builder.Services.AddSingleton<IFrameBroadcaster, FrameBroadcaster>();
 
