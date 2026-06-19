@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace SwiftCam.Tests.Unit;
@@ -149,8 +150,9 @@ public class CameraServiceConfigTests
         var broadcaster = new FakeFrameBroadcaster();
         var lifetime = new FakeApplicationLifetime();
         var logger = NullLogger<CameraService>.Instance;
+        var options = Options.Create(new CameraSettings());
 
-        using var service = new CameraService(broadcaster, lifetime, logger);
+        using var service = new CameraService(options, broadcaster, lifetime, logger);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
@@ -178,8 +180,9 @@ public class CameraServiceConfigTests
         var broadcaster = new FakeFrameBroadcaster();
         var lifetime = new FakeApplicationLifetime();
         var logger = NullLogger<CameraService>.Instance;
+        var options = Options.Create(new CameraSettings());
 
-        using var service = new CameraService(broadcaster, lifetime, logger);
+        using var service = new CameraService(options, broadcaster, lifetime, logger);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
@@ -200,11 +203,18 @@ public class CameraServiceConfigTests
 
     private static string GetProcessArguments()
     {
-        var field = typeof(CameraService)
-            .GetField("ProcessArguments", BindingFlags.NonPublic | BindingFlags.Static);
+        var options = Options.Create(new CameraSettings());
+        var broadcaster = new FakeFrameBroadcaster();
+        var lifetime = new FakeApplicationLifetime();
+        var logger = NullLogger<CameraService>.Instance;
 
-        Assert.NotNull(field);
-        return field!.GetValue(null) as string ?? string.Empty;
+        using var service = new CameraService(options, broadcaster, lifetime, logger);
+
+        var method = typeof(CameraService)
+            .GetMethod("BuildProcessArguments", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        Assert.NotNull(method);
+        return method!.Invoke(service, null) as string ?? string.Empty;
     }
 
     #endregion

@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace SwiftCam;
 
@@ -8,7 +9,13 @@ public class Program
     private const string HtmlPage = """
         <!DOCTYPE html>
         <html>
-        <head><title>Raspberry Pi Camera</title></head>
+        <head>
+            <title>Raspberry Pi Camera</title>
+            <style>
+                body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+                img { width: 100%; max-width: 1280px; height: auto; }
+            </style>
+        </head>
         <body>
             <img src="/stream" alt="Camera Stream" />
         </body>
@@ -27,6 +34,11 @@ public class Program
 
         // Configure Kestrel to listen on 0.0.0.0:8080 (HTTP only, no HTTPS)
         builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(8080));
+
+        // Bind CameraSettings from the "Camera" configuration section
+        builder.Services.Configure<CameraSettings>(builder.Configuration.GetSection("Camera"));
+        builder.Services.AddSingleton<IValidateOptions<CameraSettings>, CameraSettingsValidator>();
+        builder.Services.AddOptionsWithValidateOnStart<CameraSettings>();
 
         // Register FrameBroadcaster as singleton
         builder.Services.AddSingleton<IFrameBroadcaster, FrameBroadcaster>();

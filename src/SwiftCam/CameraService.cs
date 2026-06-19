@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Options;
 
 namespace SwiftCam;
 
@@ -9,7 +10,6 @@ namespace SwiftCam;
 public class CameraService : BackgroundService, ICameraService
 {
     private static readonly string[] ProcessNames = ["rpicam-vid", "libcamera-vid"];
-    private const string ProcessArguments = "-t 0 --codec mjpeg --width 640 --height 480 --framerate 15 -q 80 -n -o -";
 
     /// <summary>
     /// JPEG Start Of Image marker.
@@ -27,15 +27,18 @@ public class CameraService : BackgroundService, ICameraService
     private readonly IFrameBroadcaster _broadcaster;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<CameraService> _logger;
+    private readonly CameraSettings _settings;
 
     private Process? _process;
     private bool _isRunning;
 
     public CameraService(
+        IOptions<CameraSettings> options,
         IFrameBroadcaster broadcaster,
         IHostApplicationLifetime appLifetime,
         ILogger<CameraService> logger)
     {
+        _settings = options.Value;
         _broadcaster = broadcaster;
         _appLifetime = appLifetime;
         _logger = logger;
@@ -47,6 +50,10 @@ public class CameraService : BackgroundService, ICameraService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _logger.LogInformation(
+            "Camera settings: {Width}x{Height} @ {Framerate}fps, quality {Quality}",
+            _settings.Width, _settings.Height, _settings.Framerate, _settings.Quality);
+
         var restartAttempted = false;
 
         while (!stoppingToken.IsCancellationRequested)
@@ -123,14 +130,22 @@ public class CameraService : BackgroundService, ICameraService
         base.Dispose();
     }
 
+    private string BuildProcessArguments()
+    {
+        return $"-t 0 --codec mjpeg --width {_settings.Width} --height {_settings.Height} " +
+               $"--framerate {_settings.Framerate} -q {_settings.Quality} -n -o -";
+    }
+
     private Process StartCameraProcess()
     {
+        var arguments = BuildProcessArguments();
+
         foreach (var processName in ProcessNames)
         {
             var startInfo = new ProcessStartInfo
             {
                 FileName = processName,
-                Arguments = ProcessArguments,
+                Arguments = arguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
