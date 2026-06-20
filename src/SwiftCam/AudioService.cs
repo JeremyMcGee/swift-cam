@@ -176,7 +176,7 @@ public class AudioService : BackgroundService
     {
         if (!inWindow)
         {
-            SetState(AudioState.Idle, "Outside playback window");
+            SetState(AudioState.Idle, GetIdleReason());
             return;
         }
 
@@ -203,7 +203,7 @@ public class AudioService : BackgroundService
         {
             StopPlayback();
             _logger.LogInformation("Audio playback stopped: window ended");
-            SetState(AudioState.Idle, "Outside playback window");
+            SetState(AudioState.Idle, GetIdleReason());
             return;
         }
 
@@ -239,7 +239,7 @@ public class AudioService : BackgroundService
         // Window ended
         if (!inWindow)
         {
-            SetState(AudioState.Idle, "Outside playback window");
+            SetState(AudioState.Idle, GetIdleReason());
             return;
         }
 
@@ -266,7 +266,7 @@ public class AudioService : BackgroundService
         // Window ended while waiting
         if (!inWindow)
         {
-            SetState(AudioState.Idle, "Outside playback window");
+            SetState(AudioState.Idle, GetIdleReason());
             _consecutiveRetries = 0;
             return;
         }
@@ -299,7 +299,7 @@ public class AudioService : BackgroundService
         {
             // Reset when we leave a window so we're clean for the next one
             _consecutiveRetries = 0;
-            SetState(AudioState.Idle, "Outside playback window");
+            SetState(AudioState.Idle, GetIdleReason());
         }
     }
 
@@ -309,9 +309,8 @@ public class AudioService : BackgroundService
         {
             _processManager.Start(_settings.AudioFilePath);
             _consecutiveRetries = 0;
-            var windowName = GetCurrentWindowName();
-            SetState(AudioState.Playing, $"{windowName} session");
-            _logger.LogInformation("Audio playback started: {Window}", windowName);
+            SetState(AudioState.Playing, GetPlayingReason());
+            _logger.LogInformation("Audio playback started: {Window}", GetCurrentWindowName());
         }
         catch (InvalidOperationException ex)
         {
@@ -325,8 +324,8 @@ public class AudioService : BackgroundService
         try
         {
             _processManager.Start(_settings.AudioFilePath);
-            var windowName = GetCurrentWindowName();
-            SetState(AudioState.Playing, $"{windowName} session (restarted)");
+            var reason = GetPlayingReason();
+            SetState(AudioState.Playing, $"{reason} (restarted)");
             _logger.LogInformation("Audio playback restarted (attempt {Attempt})", _consecutiveRetries);
         }
         catch (InvalidOperationException ex)
@@ -403,6 +402,31 @@ public class AudioService : BackgroundService
         if (CurrentWindow == _morningWindow) return "Morning";
         if (CurrentWindow == _eveningWindow) return "Evening";
         return "Playback";
+    }
+
+    private string FormatLocalTime(DateTime utcTime)
+    {
+        var local = utcTime.ToLocalTime();
+        return local.ToString("HHmm");
+    }
+
+    private string GetIdleReason()
+    {
+        if (NextWindow is not null)
+        {
+            return $"Outside playback window until {FormatLocalTime(NextWindow.Start)}";
+        }
+        return "Outside playback window";
+    }
+
+    private string GetPlayingReason()
+    {
+        var windowName = GetCurrentWindowName();
+        if (CurrentWindow is not null)
+        {
+            return $"{windowName} session until {FormatLocalTime(CurrentWindow.End)}";
+        }
+        return $"{windowName} session";
     }
 
     private bool AudioFileExists()
