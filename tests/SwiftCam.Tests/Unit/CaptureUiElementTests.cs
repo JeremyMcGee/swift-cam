@@ -25,13 +25,13 @@ public class CaptureUiElementTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetRoot_ContainsDeleteButtonClassInThumbnailStyles()
+    public async Task GetStyleCss_ContainsDeleteButtonClass()
     {
-        var response = await _client.GetAsync("/");
+        var response = await _client.GetAsync("/style.css");
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        // The delete-btn class is defined in styles and used dynamically on thumbnails
+        // The delete-btn class is defined in the stylesheet
         Assert.Contains("delete-btn", body);
     }
 

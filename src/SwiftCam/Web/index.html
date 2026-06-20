@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Raspberry Pi Camera</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+    <img src="/stream" alt="Camera Stream" />
+    <div id="audio-status-panel" role="status" aria-live="polite" aria-atomic="true">
+        <span class="label">Audio:</span>
+        <span id="audio-state" class="value">Loading...</span>
+        <span class="label" style="margin-left:16px;">Reason:</span>
+        <span id="audio-reason" class="value"></span>
+    </div>
+    <div id="capture-gallery">
+        <div class="gallery-header">
+            <h2>Captures</h2>
+            <div class="header-buttons">
+                <button id="take-capture-btn" type="button">Take Capture</button>
+                <button id="gallery-refresh-btn" type="button">Refresh</button>
+            </div>
+        </div>
+        <div id="gallery-grid" class="gallery-grid"></div>
+        <p id="gallery-empty" class="gallery-empty">No captures yet</p>
+    </div>
+    <div id="delete-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+        <div class="dialog-box">
+            <p id="delete-dialog-title">Delete capture <span id="delete-dialog-filename" class="dialog-filename"></span>?</p>
+            <div class="dialog-buttons">
+                <button type="button" class="cancel-btn" id="delete-cancel-btn">Cancel</button>
+                <button type="button" class="confirm-btn" id="delete-confirm-btn">Delete</button>
+            </div>
+        </div>
+    </div>
+    <script src="/app.js"></script>
+</body>
+</html>

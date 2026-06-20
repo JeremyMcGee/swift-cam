@@ -360,7 +360,9 @@ The test suite covers three layers:
 
 ```
 src/SwiftCam/
-├── Program.cs                  Entry point, DI, routes, HTML page
+├── Program.cs                  Entry point (build + run)
+├── ServiceRegistration.cs      DI container configuration
+├── RouteRegistration.cs        HTTP route mapping
 ├── appsettings.json            Configuration
 ├── CameraService.cs            Camera process management
 ├── CameraSettings.cs           Camera config POCO
@@ -390,13 +392,18 @@ src/SwiftCam/
 ├── SolarTimes.cs               Solar event times record
 ├── PlaybackWindow.cs           Time window record
 ├── PlaybackWindowCalculator.cs Window calculation logic
-└── Interfaces/
-    ├── ICameraService.cs
-    ├── IFrameBroadcaster.cs
-    ├── IFrameSubscription.cs
-    ├── ISolarCalculator.cs
-    ├── IWeatherService.cs
-    └── IAudioProcessManager.cs
+├── Interfaces/
+│   ├── ICameraService.cs
+│   ├── IFrameBroadcaster.cs
+│   ├── IFrameSubscription.cs
+│   ├── ISolarCalculator.cs
+│   ├── IWeatherService.cs
+│   └── IAudioProcessManager.cs
+└── Web/
+    ├── index.html              Page structure (embedded resource)
+    ├── style.css               Stylesheet (embedded resource)
+    ├── app.js                  Client-side JavaScript (embedded resource)
+    └── HtmlPageContent.cs      Loads embedded web assets at startup
 
 audio/
 └── swift-call.mp3              Default audio file (user-provided)

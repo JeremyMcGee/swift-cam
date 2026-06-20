@@ -173,6 +173,7 @@ The test suite includes unit tests, property-based tests (FsCheck), and integrat
 
 ```
 src/SwiftCam/           Application source
+src/SwiftCam/Web/       Frontend assets (HTML, CSS, JS) — embedded resources
 tests/SwiftCam.Tests/   Unit, property, and integration tests
 ARCHITECTURE.md         Detailed design documentation
 ```
