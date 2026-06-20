@@ -16,8 +16,10 @@ SwiftCam captures video from a Raspberry Pi camera module and serves it as a liv
 - **Audio attraction** — Plays looped swift call audio during morning and evening windows calculated from solar events
 - **Weather-aware** — Automatically suppresses audio during rain or high wind (swifts don't fly in those conditions)
 - **Capture gallery** — Browse motion-captured images in a scrollable thumbnail grid below the stream
+- **Manual capture** — Take a snapshot from the live feed with a single click
+- **Capture deletion** — Delete unwanted captures from the gallery with a confirmation step
 - **Status API** — `GET /api/audio-status` returns current playback state as JSON
-- **Capture API** — `GET /api/captures` lists captures; `GET /api/captures/{filename}` serves images
+- **Capture API** — `GET /api/captures` lists captures; `GET /api/captures/{filename}` serves images; `POST /api/captures` takes a manual capture; `DELETE /api/captures/{filename}` removes a capture
 - **Web status panel** — Audio state displayed alongside the camera stream
 - **Configurable sensitivity** — Tune threshold, pixel tolerance, and cooldown via `appsettings.json`
 - **Multi-client support** — Up to 10 simultaneous stream viewers, independent of motion detection
@@ -130,13 +132,16 @@ The audio state machine handles crashes gracefully — if mplayer terminates une
 
 ## Capture gallery
 
-The web page includes a gallery panel below the audio status section that displays thumbnails of all motion-captured images. The gallery:
+The web page includes a gallery panel below the audio status section that displays thumbnails of all captured images (both motion-triggered and manual). The gallery:
 
 - Loads automatically on page open
 - Displays thumbnails in a responsive CSS grid
 - Parses timestamps from filenames and shows them below each thumbnail
 - Clicking a thumbnail opens the full-resolution image in a new tab
-- Includes a refresh button to fetch the latest captures
+- Includes a "Take Capture" button to manually snapshot the live feed
+- Includes a delete button (×) on each thumbnail with a confirmation dialog
+- Shows loading states during capture and delete operations
+- Displays auto-dismissing error messages (5 seconds) on failure
 
 ### Capture endpoints
 
@@ -147,6 +152,14 @@ The web page includes a gallery panel below the audio status section that displa
 ```
 
 `GET /api/captures/{filename}` — Serves a capture image with `Content-Type: image/jpeg`. Returns 400 for invalid filenames (path traversal, wrong extension) and 404 for missing files.
+
+`POST /api/captures` — Captures a frame from the live camera feed and saves it to disk. Returns 201 with the filename on success, 503 if no frame is available within 5 seconds, or 500 on file system errors.
+
+```json
+{"filename": "2025-Jun-15_14-30-22.jpg"}
+```
+
+`DELETE /api/captures/{filename}` — Deletes a capture image. Returns 204 on success, 400 for invalid filenames, 404 if not found, or 500 on file system errors.
 
 ## Running tests
 

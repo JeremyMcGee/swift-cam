@@ -87,6 +87,19 @@ public class Program
                     opacity: 0.5;
                     cursor: not-allowed;
                 }
+                #capture-gallery .gallery-header .header-buttons {
+                    display: flex;
+                    gap: 8px;
+                }
+                #capture-gallery .gallery-error {
+                    background: #4a1c1c;
+                    color: #f88;
+                    border: 1px solid #622;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    margin-bottom: 12px;
+                    font-size: 13px;
+                }
                 #capture-gallery .gallery-grid {
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -96,6 +109,7 @@ public class Program
                     display: flex;
                     flex-direction: column;
                     align-items: center;
+                    position: relative;
                 }
                 #capture-gallery .gallery-grid .thumb img {
                     width: 100%;
@@ -109,9 +123,94 @@ public class Program
                     color: #999;
                     text-align: center;
                 }
+                #capture-gallery .gallery-grid .thumb .delete-btn {
+                    position: absolute;
+                    top: 4px;
+                    right: 4px;
+                    background: rgba(0,0,0,0.7);
+                    color: #f88;
+                    border: 1px solid #622;
+                    border-radius: 50%;
+                    width: 24px;
+                    height: 24px;
+                    font-size: 14px;
+                    line-height: 22px;
+                    text-align: center;
+                    cursor: pointer;
+                    padding: 0;
+                }
+                #capture-gallery .gallery-grid .thumb .delete-btn:hover {
+                    background: rgba(80,0,0,0.9);
+                    color: #fff;
+                }
+                #capture-gallery .gallery-grid .thumb .delete-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
                 #capture-gallery .gallery-empty {
                     color: #999;
                     font-style: italic;
+                }
+                #delete-confirm-dialog {
+                    display: none;
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.6);
+                    z-index: 1000;
+                    align-items: center;
+                    justify-content: center;
+                }
+                #delete-confirm-dialog.visible {
+                    display: flex;
+                }
+                #delete-confirm-dialog .dialog-box {
+                    background: #222;
+                    border: 1px solid #555;
+                    border-radius: 8px;
+                    padding: 24px;
+                    max-width: 400px;
+                    width: 90%;
+                    text-align: center;
+                    color: #e0e0e0;
+                }
+                #delete-confirm-dialog .dialog-box p {
+                    margin: 0 0 16px 0;
+                    font-size: 14px;
+                }
+                #delete-confirm-dialog .dialog-box .dialog-filename {
+                    font-weight: bold;
+                    color: #fff;
+                    word-break: break-all;
+                }
+                #delete-confirm-dialog .dialog-box .dialog-buttons {
+                    display: flex;
+                    gap: 12px;
+                    justify-content: center;
+                }
+                #delete-confirm-dialog .dialog-box .dialog-buttons button {
+                    padding: 6px 16px;
+                    border-radius: 4px;
+                    border: 1px solid #555;
+                    cursor: pointer;
+                    font-size: 13px;
+                }
+                #delete-confirm-dialog .dialog-box .dialog-buttons .confirm-btn {
+                    background: #a33;
+                    color: #fff;
+                    border-color: #c44;
+                }
+                #delete-confirm-dialog .dialog-box .dialog-buttons .confirm-btn:hover {
+                    background: #c44;
+                }
+                #delete-confirm-dialog .dialog-box .dialog-buttons .cancel-btn {
+                    background: #333;
+                    color: #e0e0e0;
+                }
+                #delete-confirm-dialog .dialog-box .dialog-buttons .cancel-btn:hover {
+                    background: #444;
                 }
             </style>
         </head>
@@ -126,10 +225,22 @@ public class Program
             <div id="capture-gallery">
                 <div class="gallery-header">
                     <h2>Captures</h2>
-                    <button id="gallery-refresh-btn" type="button">Refresh</button>
+                    <div class="header-buttons">
+                        <button id="take-capture-btn" type="button">Take Capture</button>
+                        <button id="gallery-refresh-btn" type="button">Refresh</button>
+                    </div>
                 </div>
                 <div id="gallery-grid" class="gallery-grid"></div>
                 <p id="gallery-empty" class="gallery-empty">No captures yet</p>
+            </div>
+            <div id="delete-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+                <div class="dialog-box">
+                    <p id="delete-dialog-title">Delete capture <span id="delete-dialog-filename" class="dialog-filename"></span>?</p>
+                    <div class="dialog-buttons">
+                        <button type="button" class="cancel-btn" id="delete-cancel-btn">Cancel</button>
+                        <button type="button" class="confirm-btn" id="delete-confirm-btn">Delete</button>
+                    </div>
+                </div>
             </div>
             <script>
                 (function() {
@@ -167,7 +278,16 @@ public class Program
                     var gridEl = document.getElementById('gallery-grid');
                     var emptyEl = document.getElementById('gallery-empty');
                     var refreshBtn = document.getElementById('gallery-refresh-btn');
+                    var captureBtn = document.getElementById('take-capture-btn');
+                    var galleryEl = document.getElementById('capture-gallery');
+                    var deleteDialog = document.getElementById('delete-confirm-dialog');
+                    var deleteDialogFilename = document.getElementById('delete-dialog-filename');
+                    var deleteCancelBtn = document.getElementById('delete-cancel-btn');
+                    var deleteConfirmBtn = document.getElementById('delete-confirm-btn');
                     var isLoading = false;
+                    var isCaptureLoading = false;
+                    var pendingDelete = null;
+                    var deletingFiles = new Set();
 
                     var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -202,6 +322,7 @@ public class Program
                             var filename = captures[i];
                             var thumbDiv = document.createElement('div');
                             thumbDiv.className = 'thumb';
+                            thumbDiv.setAttribute('data-filename', filename);
 
                             var link = document.createElement('a');
                             link.href = '/api/captures/' + encodeURIComponent(filename);
@@ -214,11 +335,32 @@ public class Program
                             img.loading = 'lazy';
                             link.appendChild(img);
 
+                            var deleteBtn = document.createElement('button');
+                            deleteBtn.className = 'delete-btn';
+                            deleteBtn.type = 'button';
+                            deleteBtn.textContent = '\u00D7';
+                            deleteBtn.title = 'Delete ' + filename;
+                            deleteBtn.setAttribute('aria-label', 'Delete ' + filename);
+                            deleteBtn.setAttribute('data-filename', filename);
+                            if (deletingFiles.has(filename)) {
+                                deleteBtn.disabled = true;
+                                deleteBtn.textContent = '\u2026';
+                            }
+                            deleteBtn.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                var fn = this.getAttribute('data-filename');
+                                if (!deletingFiles.has(fn)) {
+                                    showDeleteDialog(fn);
+                                }
+                            });
+
                             var ts = document.createElement('span');
                             ts.className = 'timestamp';
                             ts.textContent = parseFilenameTimestamp(filename);
 
                             thumbDiv.appendChild(link);
+                            thumbDiv.appendChild(deleteBtn);
                             thumbDiv.appendChild(ts);
                             gridEl.appendChild(thumbDiv);
                         }
@@ -252,6 +394,101 @@ public class Program
 
                     refreshBtn.addEventListener('click', fetchCaptures);
                     fetchCaptures();
+
+                    function showGalleryError(message) {
+                        var errorDiv = document.createElement('div');
+                        errorDiv.className = 'gallery-error';
+                        errorDiv.textContent = message;
+                        galleryEl.insertBefore(errorDiv, gridEl);
+                        setTimeout(function() {
+                            if (errorDiv.parentNode) {
+                                errorDiv.parentNode.removeChild(errorDiv);
+                            }
+                        }, 5000);
+                    }
+
+                    function takeCapture() {
+                        if (isCaptureLoading) return;
+                        isCaptureLoading = true;
+                        captureBtn.disabled = true;
+                        captureBtn.textContent = 'Capturing...';
+
+                        fetch('/api/captures', { method: 'POST' })
+                            .then(function(res) {
+                                if (res.status === 201) {
+                                    fetchCaptures();
+                                } else {
+                                    return res.json().then(function(data) {
+                                        showGalleryError(data.error || 'Capture failed');
+                                    });
+                                }
+                            })
+                            .catch(function() {
+                                showGalleryError('Network error: could not reach the server');
+                            })
+                            .finally(function() {
+                                isCaptureLoading = false;
+                                captureBtn.disabled = false;
+                                captureBtn.textContent = 'Take Capture';
+                            });
+                    }
+
+                    captureBtn.addEventListener('click', takeCapture);
+
+                    function showDeleteDialog(filename) {
+                        pendingDelete = filename;
+                        deleteDialogFilename.textContent = filename;
+                        deleteDialog.classList.add('visible');
+                    }
+
+                    function hideDeleteDialog() {
+                        pendingDelete = null;
+                        deleteDialog.classList.remove('visible');
+                    }
+
+                    function confirmDelete() {
+                        if (!pendingDelete) return;
+                        var filename = pendingDelete;
+                        hideDeleteDialog();
+
+                        deletingFiles.add(filename);
+                        var thumbDiv = gridEl.querySelector('[data-filename="' + CSS.escape(filename) + '"]');
+                        var btn = thumbDiv ? thumbDiv.querySelector('.delete-btn') : null;
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.textContent = '\u2026';
+                        }
+
+                        fetch('/api/captures/' + encodeURIComponent(filename), { method: 'DELETE' })
+                            .then(function(res) {
+                                if (res.status === 204) {
+                                    if (thumbDiv && thumbDiv.parentNode) {
+                                        thumbDiv.parentNode.removeChild(thumbDiv);
+                                    }
+                                    // Show empty message if no thumbnails remain
+                                    if (gridEl.children.length === 0) {
+                                        emptyEl.style.display = '';
+                                    }
+                                } else {
+                                    return res.json().then(function(data) {
+                                        showGalleryError(data.error || 'Delete failed');
+                                    });
+                                }
+                            })
+                            .catch(function() {
+                                showGalleryError('Network error: could not reach the server');
+                            })
+                            .finally(function() {
+                                deletingFiles.delete(filename);
+                                if (btn) {
+                                    btn.disabled = false;
+                                    btn.textContent = '\u00D7';
+                                }
+                            });
+                    }
+
+                    deleteCancelBtn.addEventListener('click', hideDeleteDialog);
+                    deleteConfirmBtn.addEventListener('click', confirmDelete);
                 })();
             </script>
         </body>
@@ -406,6 +643,74 @@ public class Program
                 return Results.NotFound();
 
             return Results.File(path, "image/jpeg");
+        });
+
+        // POST /api/captures — capture a single frame and save to disk
+        app.MapPost("/api/captures", async (IFrameBroadcaster broadcaster, IOptions<MotionSettings> motionSettings, TimeProvider timeProvider, CancellationToken ct) =>
+        {
+            try
+            {
+                var filename = await CaptureService.CaptureFrameAsync(
+                    broadcaster,
+                    motionSettings.Value.CaptureDirectory,
+                    timeProvider,
+                    TimeSpan.FromSeconds(5),
+                    ct);
+
+                return Results.Json(new { filename }, statusCode: StatusCodes.Status201Created);
+            }
+            catch (TimeoutException)
+            {
+                return Results.Json(
+                    new { error = "No camera frame available \u2014 the camera may not be running" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (MaxClientsExceededException)
+            {
+                return Results.Json(
+                    new { error = "No camera frame available \u2014 maximum stream subscribers reached" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (IOException)
+            {
+                return Results.Json(
+                    new { error = "Capture could not be saved due to a file system error" },
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
+        // DELETE /api/captures/{filename} — delete a capture file
+        app.MapDelete("/api/captures/{filename}", (string filename, IOptions<MotionSettings> motionSettings) =>
+        {
+            try
+            {
+                CaptureDeleteService.DeleteCapture(filename, motionSettings.Value.CaptureDirectory);
+                return Results.NoContent();
+            }
+            catch (ArgumentException ex) when (ex.Message.Contains("path traversal"))
+            {
+                return Results.Json(
+                    new { error = "Invalid filename: path traversal characters are not allowed" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (ArgumentException)
+            {
+                return Results.Json(
+                    new { error = "Invalid filename: only .jpg files are supported" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (FileNotFoundException)
+            {
+                return Results.Json(
+                    new { error = "Capture not found: the specified file does not exist" },
+                    statusCode: StatusCodes.Status404NotFound);
+            }
+            catch (IOException)
+            {
+                return Results.Json(
+                    new { error = "Deletion could not be completed due to a file system error" },
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
         });
 
         // Fallback catch-all — return 404 for all other paths

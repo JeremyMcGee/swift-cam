@@ -9,38 +9,35 @@ SwiftCam is a single-process ASP.NET Core application that runs three concurrent
 1. **Streaming pipeline** — Captures frames from the camera hardware, broadcasts them to connected HTTP clients as an MJPEG stream.
 2. **Motion detection pipeline** — Subscribes to the same frame broadcast, compares consecutive frames, and saves a JPEG to disk when motion is detected.
 3. **Audio attraction pipeline** — Schedules looped audio playback during solar-event-based time windows, suppressing playback during adverse weather.
-4. **Capture gallery** — Serves captured images via HTTP API and renders a browsable thumbnail gallery on the web page.
+4. **Capture gallery** — Serves captured images via HTTP API, provides manual capture and deletion endpoints, and renders a browsable thumbnail gallery with interactive controls on the web page.
 
 Both visual pipelines share the same frame source via a publish-subscribe broadcaster, so motion detection runs independently without affecting stream latency. The audio pipeline operates independently, managing an mplayer child process based on time, weather, and process state.
 
-```
-┌─────────────────┐       ┌──────────────────┐       ┌─────────────────────┐
-│  CameraService  │──────▶│  FrameBroadcaster │──┬──▶│  MJPEG Stream (HTTP) │
-│  (rpicam-vid)   │ frame │  (pub-sub hub)    │  │   └─────────────────────┘
-│  + greyscale    │       └──────────────────┘  │
-│  + timestamp    │                              │   ┌─────────────────────┐
-└─────────────────┘                              └──▶│  MotionDetector     │
-                                                     │  → FrameDifferencer │
-                                                     │  → CaptureWriter    │
-                                                     └─────────────────────┘
+```mermaid
+graph LR
+    subgraph Streaming Pipeline
+        CS[CameraService<br/>rpicam-vid + greyscale + timestamp] --> FB[FrameBroadcaster<br/>pub-sub hub]
+        FB --> MJPEG[MJPEG Stream<br/>HTTP]
+    end
 
-┌─────────────────┐       ┌──────────────────┐       ┌─────────────────────┐
-│  WeatherService │──────▶│   AudioService   │──────▶│  AudioProcessManager│
-│  (Open-Meteo)   │weather│  (state machine) │ start │  (mplayer lifecycle)│
-└─────────────────┘       └──────────────────┘ /stop └─────────────────────┘
-                                   │
-                          ┌────────┴────────┐
-                          │ SolarCalculator │
-                          │ (window times)  │
-                          └─────────────────┘
+    subgraph Motion Detection Pipeline
+        FB --> MD[MotionDetector]
+        MD --> FD[FrameDifferencer]
+        MD --> CW[CaptureWriter]
+    end
 
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Capture Gallery (HTTP API + frontend)                                  │
-│                                                                         │
-│  GET /api/captures ──▶ CaptureListService ──▶ JSON filename list       │
-│  GET /api/captures/{f} ──▶ CaptureFileService ──▶ image/jpeg           │
-│  Frontend gallery panel ──▶ thumbnails + timestamps                    │
-└─────────────────────────────────────────────────────────────────────────┘
+    subgraph Audio Attraction Pipeline
+        WS[WeatherService<br/>Open-Meteo] -->|weather| AS[AudioService<br/>state machine]
+        SC[SolarCalculator<br/>window times] --> AS
+        AS -->|start/stop| APM[AudioProcessManager<br/>mplayer lifecycle]
+    end
+
+    subgraph Capture Gallery - HTTP API + Frontend
+        GET1[GET /api/captures] --> CLS[CaptureListService]
+        GET2[GET /api/captures/file] --> CFS[CaptureFileService]
+        POST[POST /api/captures] --> CSvc[CaptureService]
+        DEL[DELETE /api/captures/file] --> CDS[CaptureDeleteService]
+    end
 ```
 
 ## Component details
@@ -123,6 +120,27 @@ A static utility that validates and resolves capture file requests:
 
 These two services support the gallery API endpoints without holding any state.
 
+### CaptureService
+
+A static utility class that provides manual capture functionality:
+- `CaptureFrameAsync(IFrameBroadcaster, string, TimeProvider, TimeSpan, CancellationToken)` — Subscribes to the broadcaster, waits for the next frame with a linked cancellation token (timeout + caller cancellation), saves it to disk, and returns the filename. Always disposes the subscription in a `finally` block to avoid leaking broadcaster slots.
+- `GenerateUniqueFilename(DateTime, string)` — Generates a filename via `CaptureWriter.GenerateFilename`, then checks the capture directory for collisions. If the base filename exists, appends `_1`, `_2`, etc. until a unique name is found.
+
+Exception behaviour:
+- `TimeoutException` — No frame received within the configured timeout (distinguishes from caller cancellation via `!ct.IsCancellationRequested`)
+- `IOException` — File write failure (propagates naturally)
+
+### CaptureDeleteService
+
+A static utility that performs validated file deletion:
+- `DeleteCapture(string filename, string captureDirectory)` — Validates the filename via `CaptureFileService.IsValidFilename`, resolves the full path, and deletes the file.
+
+Exception behaviour:
+- `ArgumentException` with "path traversal" message — filename contains `..`, `/`, or `\`
+- `ArgumentException` with "only .jpg" message — filename has wrong extension
+- `FileNotFoundException` — file doesn't exist at the resolved path
+- `IOException` — file system error during deletion (propagates naturally)
+
 ### Configuration classes
 
 **CameraSettings** — Width, Height, Framerate, Quality. Validated at startup via `CameraSettingsValidator`.
@@ -182,88 +200,96 @@ Manages the mplayer child process lifecycle:
 
 ## Dependency injection graph
 
-```
-WebApplication Host
-├── CameraService (HostedService)
-│   ├── IOptions<CameraSettings>
-│   ├── IFrameBroadcaster
-│   ├── IHostApplicationLifetime
-│   └── ILogger<CameraService>
-├── MotionDetector (HostedService)
-│   ├── IOptions<MotionSettings>
-│   ├── IFrameBroadcaster
-│   ├── ILogger<MotionDetector>
-│   └── TimeProvider
-├── AudioService (Singleton + HostedService)
-│   ├── IOptions<AudioSettings>
-│   ├── ISolarCalculator
-│   ├── IWeatherService
-│   ├── IAudioProcessManager
-│   ├── TimeProvider
-│   └── ILogger<AudioService>
-├── WeatherService (Singleton + HostedService, implements IWeatherService)
-│   ├── HttpClient (via IHttpClientFactory)
-│   ├── IOptions<AudioSettings>
-│   └── ILogger<WeatherService>
-├── FrameBroadcaster (Singleton, implements IFrameBroadcaster)
-├── SolarCalculatorWrapper (Singleton, implements ISolarCalculator)
-├── AudioProcessManager (Singleton, implements IAudioProcessManager)
-├── TimeProvider.System (Singleton)
-├── CameraSettingsValidator (Singleton)
-├── MotionSettingsValidator (Singleton)
-└── AudioSettingsValidator (Singleton)
+```mermaid
+graph TD
+    Host[WebApplication Host]
+    Host --> CS[CameraService - HostedService]
+    CS --> CS_Opts["IOptions&lt;CameraSettings&gt;"]
+    CS --> CS_FB[IFrameBroadcaster]
+    CS --> CS_Life[IHostApplicationLifetime]
+    CS --> CS_Log["ILogger&lt;CameraService&gt;"]
+
+    Host --> MD[MotionDetector - HostedService]
+    MD --> MD_Opts["IOptions&lt;MotionSettings&gt;"]
+    MD --> MD_FB[IFrameBroadcaster]
+    MD --> MD_Log["ILogger&lt;MotionDetector&gt;"]
+    MD --> MD_TP[TimeProvider]
+
+    Host --> AS[AudioService - Singleton + HostedService]
+    AS --> AS_Opts["IOptions&lt;AudioSettings&gt;"]
+    AS --> AS_SC[ISolarCalculator]
+    AS --> AS_WS[IWeatherService]
+    AS --> AS_APM[IAudioProcessManager]
+    AS --> AS_TP[TimeProvider]
+    AS --> AS_Log["ILogger&lt;AudioService&gt;"]
+
+    Host --> WS[WeatherService - Singleton + HostedService]
+    WS --> WS_HC[HttpClient]
+    WS --> WS_Opts["IOptions&lt;AudioSettings&gt;"]
+    WS --> WS_Log["ILogger&lt;WeatherService&gt;"]
+
+    Host --> FB[FrameBroadcaster - Singleton]
+    Host --> SCW[SolarCalculatorWrapper - Singleton]
+    Host --> APM[AudioProcessManager - Singleton]
+    Host --> TP[TimeProvider.System - Singleton]
+    Host --> CSV[CameraSettingsValidator]
+    Host --> MSV[MotionSettingsValidator]
+    Host --> ASV[AudioSettingsValidator]
 ```
 
 ## Data flow
 
 ### Frame lifecycle
 
-```
-rpicam-vid stdout
-    → CameraService (SOI/EOI parsing)
-    → GreyscaleFilter (BT.601 luminance conversion)
-    → TimestampOverlay (text drawn on greyscale image)
-    → FrameBroadcaster.PublishFrame()
-    → Channel.TryWrite() to each subscriber's bounded channel
-    → Subscriber reads via WaitForFrameAsync()
+```mermaid
+flowchart LR
+    A[rpicam-vid stdout] --> B[CameraService<br/>SOI/EOI parsing]
+    B --> C[GreyscaleFilter<br/>BT.601 luminance]
+    C --> D[TimestampOverlay]
+    D --> E["FrameBroadcaster.PublishFrame()"]
+    E --> F["Channel.TryWrite()<br/>to each subscriber"]
+    F --> G["Subscriber reads via<br/>WaitForFrameAsync()"]
 ```
 
 ### Motion capture flow
 
-```
-Frame N-1 (stored)  ─┐
-                     ├─ FrameDifferencer.ComputeChangedPercentage()
-Frame N (received)  ─┘        │
-                              ▼
-                    changedPercent > threshold?
-                              │
-                    yes + not in cooldown
-                              │
-                              ▼
-                    CaptureWriter.SaveAsync()
-                    → creates directory if needed
-                    → writes yyyy-MMM-dd_HH-mm-ss.jpg
-                    → enters cooldown
+```mermaid
+flowchart TD
+    A["Frame N-1 (stored)"] --> C["FrameDifferencer.ComputeChangedPercentage()"]
+    B["Frame N (received)"] --> C
+    C --> D{changedPercent > threshold?}
+    D -->|yes + not in cooldown| E["CaptureWriter.SaveAsync()"]
+    E --> F[creates directory if needed]
+    F --> G["writes yyyy-MMM-dd_HH-mm-ss.jpg"]
+    G --> H[enters cooldown]
+    D -->|no or in cooldown| I[skip]
 ```
 
 ### Audio scheduling flow
 
-```
-Startup / Midnight
-    → SolarCalculatorWrapper.Calculate(lat, lon, today)
-    → PlaybackWindowCalculator.Calculate(solarTimes, settings, today)
-    → Store morning + evening windows
+```mermaid
+flowchart TD
+    subgraph Initialization ["Startup / Midnight"]
+        S1["SolarCalculatorWrapper.Calculate(lat, lon, today)"]
+        S2["PlaybackWindowCalculator.Calculate(solarTimes, settings, today)"]
+        S3[Store morning + evening windows]
+        S1 --> S2 --> S3
+    end
 
-Every 1 second (AudioService evaluation loop):
-    → Is current time within a window?
-    → WeatherService.CurrentWeather — suppressed?
-    → AudioProcessManager.IsPlaying — crashed?
-    → Execute state transition (Idle/Playing/Suppressed/Stopped/Error)
+    subgraph EvalLoop ["Every 1 second - AudioService evaluation"]
+        E1{Current time within a window?}
+        E2{"WeatherService.CurrentWeather — suppressed?"}
+        E3{"AudioProcessManager.IsPlaying — crashed?"}
+        E4["Execute state transition<br/>(Idle/Playing/Suppressed/Stopped/Error)"]
+        E1 --> E2 --> E3 --> E4
+    end
 
-WeatherService (parallel, every N minutes):
-    → GET https://api.open-meteo.com/v1/forecast?...
-    → Parse precipitation + wind speed
-    → Update CurrentWeather state
+    subgraph Weather ["WeatherService - parallel, every N minutes"]
+        W1["GET https://api.open-meteo.com/v1/forecast?..."]
+        W2[Parse precipitation + wind speed]
+        W3[Update CurrentWeather state]
+        W1 --> W2 --> W3
+    end
 ```
 
 ## Design decisions
@@ -325,8 +351,10 @@ The test suite covers three layers:
 15. Capture listing .jpg-only filtering — Only .jpg files are returned regardless of other file types present
 16. Filename validation — Invalid filenames (path traversal, wrong extension) always rejected; valid always accepted
 17. Filename timestamp round-trip — GenerateFilename → parse back yields identical date/time components
+18. Capture save round-trip — CaptureFrameAsync saves frame data byte-for-byte identical to the original
+19. Filename deduplication uniqueness — GenerateUniqueFilename always returns a non-existing filename with correct suffix
 
-**Integration tests** — Verify DI wiring (settings bind from config, all audio services resolve), HTTP endpoints (GET /api/audio-status returns 200 + valid JSON, GET /api/captures returns JSON array, GET /api/captures/{filename} serves images with correct content-type), gallery endpoints don't interfere with stream or audio routes, and validation rejects invalid config at startup.
+**Integration tests** — Verify DI wiring (settings bind from config, all audio services resolve), HTTP endpoints (GET /api/audio-status returns 200 + valid JSON, GET /api/captures returns JSON array, GET /api/captures/{filename} serves images with correct content-type, POST /api/captures returns 201 with filename, DELETE /api/captures/{filename} returns 204), gallery endpoints don't interfere with stream or audio routes, and validation rejects invalid config at startup.
 
 ## File layout
 
@@ -343,6 +371,8 @@ src/SwiftCam/
 ├── CaptureWriter.cs            Disk write utility
 ├── CaptureListService.cs       Capture listing (gallery API)
 ├── CaptureFileService.cs       Capture file validation/resolution (gallery API)
+├── CaptureService.cs           Manual capture (subscribe, wait, save)
+├── CaptureDeleteService.cs     Capture deletion with validation
 ├── MotionDetector.cs           Motion detection service
 ├── MotionSettings.cs           Motion config POCO
 ├── MotionSettingsValidator.cs  Motion config validation
@@ -383,6 +413,11 @@ tests/SwiftCam.Tests/
 │   ├── CaptureListJpgFilterPropertyTests.cs
 │   ├── CaptureFileValidationPropertyTests.cs
 │   ├── CaptureFilenameTimestampRoundTripPropertyTests.cs
+│   ├── CaptureServiceRoundTripPropertyTests.cs
+│   ├── CaptureServiceDeduplicationPropertyTests.cs
+│   ├── CaptureDeleteServiceTests.cs
+│   ├── CaptureEndpointTests.cs
+│   ├── CaptureUiElementTests.cs
 │   ├── CaptureApiTests.cs
 │   ├── CooldownStateMachinePropertyTests.cs
 │   ├── AudioSettingsTests.cs
