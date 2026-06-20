@@ -34,7 +34,7 @@ public class AudioServiceIntegrationTests : IClassFixture<AudioServiceIntegratio
         var settings = options.Value;
 
         // Assert
-        Assert.Equal("audio/swift-call.mp3", settings.AudioFilePath);
+        Assert.Equal("audio/3mingentleduets-1-1-1-1.mp3", settings.AudioFilePath);
         Assert.Equal(51.9, settings.Latitude);
         Assert.Equal(-2.07, settings.Longitude);
         Assert.Equal(0, settings.MorningOffsetMinutes);

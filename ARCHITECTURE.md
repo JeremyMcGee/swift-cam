@@ -9,6 +9,7 @@ SwiftCam is a single-process ASP.NET Core application that runs three concurrent
 1. **Streaming pipeline** — Captures frames from the camera hardware, broadcasts them to connected HTTP clients as an MJPEG stream.
 2. **Motion detection pipeline** — Subscribes to the same frame broadcast, compares consecutive frames, and saves a JPEG to disk when motion is detected.
 3. **Audio attraction pipeline** — Schedules looped audio playback during solar-event-based time windows, suppressing playback during adverse weather.
+4. **Capture gallery** — Serves captured images via HTTP API and renders a browsable thumbnail gallery on the web page.
 
 Both visual pipelines share the same frame source via a publish-subscribe broadcaster, so motion detection runs independently without affecting stream latency. The audio pipeline operates independently, managing an mplayer child process based on time, weather, and process state.
 
@@ -32,6 +33,14 @@ Both visual pipelines share the same frame source via a publish-subscribe broadc
                           │ SolarCalculator │
                           │ (window times)  │
                           └─────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Capture Gallery (HTTP API + frontend)                                  │
+│                                                                         │
+│  GET /api/captures ──▶ CaptureListService ──▶ JSON filename list       │
+│  GET /api/captures/{f} ──▶ CaptureFileService ──▶ image/jpeg           │
+│  Frontend gallery panel ──▶ thumbnails + timestamps                    │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Component details
@@ -97,6 +106,22 @@ A static utility for writing captures to disk:
 - `SaveAsync(byte[], string, DateTime, CancellationToken)` — Creates the directory if missing, writes the file, returns the full path
 
 The `DateTime` is passed in rather than captured internally, making the output deterministic and testable.
+
+### CaptureListService
+
+A static utility that lists capture filenames from disk:
+- `GetCaptureFilenames(string captureDirectory)` — Returns `.jpg` filenames sorted in descending alphabetical order (most recent first)
+- Returns an empty array if the directory doesn't exist or contains no `.jpg` files
+- Catches `DirectoryNotFoundException` and `IOException` gracefully
+- Filters to `.jpg` extension case-insensitively
+
+### CaptureFileService
+
+A static utility that validates and resolves capture file requests:
+- `IsValidFilename(string filename)` — Rejects empty/whitespace, filenames containing `..`, `/`, or `\`, and non-`.jpg` extensions (case-insensitive check)
+- `ResolveCaptureFile(string filename, string captureDirectory)` — Validates the filename, combines with directory path, returns the full path if the file exists, null if not found, throws `ArgumentException` for invalid filenames
+
+These two services support the gallery API endpoints without holding any state.
 
 ### Configuration classes
 
@@ -296,8 +321,12 @@ The test suite covers three layers:
 11. Weather suppression classification — suppression iff precipitation > 0 OR wind > threshold
 12. Settings validation — Invalid AudioSettings always rejected by validator
 13. Status response well-formedness — State is valid enum name, reason ≤ 200 chars, ISO 8601 times
+14. Capture listing sort order — GetCaptureFilenames always returns files in descending alphabetical order
+15. Capture listing .jpg-only filtering — Only .jpg files are returned regardless of other file types present
+16. Filename validation — Invalid filenames (path traversal, wrong extension) always rejected; valid always accepted
+17. Filename timestamp round-trip — GenerateFilename → parse back yields identical date/time components
 
-**Integration tests** — Verify DI wiring (settings bind from config, all audio services resolve), HTTP endpoint (GET /api/audio-status returns 200 + valid JSON), and validation rejects invalid config at startup.
+**Integration tests** — Verify DI wiring (settings bind from config, all audio services resolve), HTTP endpoints (GET /api/audio-status returns 200 + valid JSON, GET /api/captures returns JSON array, GET /api/captures/{filename} serves images with correct content-type), gallery endpoints don't interfere with stream or audio routes, and validation rejects invalid config at startup.
 
 ## File layout
 
@@ -312,6 +341,8 @@ src/SwiftCam/
 ├── FrameDifferencer.cs         Pixel luminance comparison
 ├── GreyscaleFilter.cs          BT.601 greyscale conversion
 ├── CaptureWriter.cs            Disk write utility
+├── CaptureListService.cs       Capture listing (gallery API)
+├── CaptureFileService.cs       Capture file validation/resolution (gallery API)
 ├── MotionDetector.cs           Motion detection service
 ├── MotionSettings.cs           Motion config POCO
 ├── MotionSettingsValidator.cs  Motion config validation
@@ -348,6 +379,11 @@ tests/SwiftCam.Tests/
 │   ├── MotionClassificationPropertyTests.cs
 │   ├── CaptureWriterRoundTripPropertyTests.cs
 │   ├── CaptureWriterFilenamePropertyTests.cs
+│   ├── CaptureListSortOrderPropertyTests.cs
+│   ├── CaptureListJpgFilterPropertyTests.cs
+│   ├── CaptureFileValidationPropertyTests.cs
+│   ├── CaptureFilenameTimestampRoundTripPropertyTests.cs
+│   ├── CaptureApiTests.cs
 │   ├── CooldownStateMachinePropertyTests.cs
 │   ├── AudioSettingsTests.cs
 │   ├── AudioSettingsValidatorPropertyTests.cs
@@ -363,6 +399,7 @@ tests/SwiftCam.Tests/
 │   └── StatusResponsePropertyTests.cs
 └── Integration/
     ├── AudioServiceIntegrationTests.cs
+    ├── CaptureGalleryIntegrationTests.cs
     ├── StatusEndpointIntegrationTests.cs
     ├── MotionDetectorLifecycleTests.cs
     └── MotionSettingsBindingTests.cs

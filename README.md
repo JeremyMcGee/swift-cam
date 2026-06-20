@@ -15,7 +15,9 @@ SwiftCam captures video from a Raspberry Pi camera module and serves it as a liv
 - **Cooldown period** — Prevents burst captures during sustained motion
 - **Audio attraction** — Plays looped swift call audio during morning and evening windows calculated from solar events
 - **Weather-aware** — Automatically suppresses audio during rain or high wind (swifts don't fly in those conditions)
+- **Capture gallery** — Browse motion-captured images in a scrollable thumbnail grid below the stream
 - **Status API** — `GET /api/audio-status` returns current playback state as JSON
+- **Capture API** — `GET /api/captures` lists captures; `GET /api/captures/{filename}` serves images
 - **Web status panel** — Audio state displayed alongside the camera stream
 - **Configurable sensitivity** — Tune threshold, pixel tolerance, and cooldown via `appsettings.json`
 - **Multi-client support** — Up to 10 simultaneous stream viewers, independent of motion detection
@@ -37,7 +39,7 @@ dotnet build src/SwiftCam/SwiftCam.csproj
 dotnet run --project src/SwiftCam
 ```
 
-Open `http://<pi-ip>:8080` in a browser to view the stream. Captured images are saved to the `captures/` directory by default.
+Open `http://<pi-ip>:8080` in a browser to view the stream. Captured images are saved to the `captures/` directory by default and can be browsed in the gallery panel below the stream.
 
 ## Configuration
 
@@ -125,6 +127,26 @@ The audio state machine handles crashes gracefully — if mplayer terminates une
   "nextWindowStart": "2025-06-15T18:30:00Z"
 }
 ```
+
+## Capture gallery
+
+The web page includes a gallery panel below the audio status section that displays thumbnails of all motion-captured images. The gallery:
+
+- Loads automatically on page open
+- Displays thumbnails in a responsive CSS grid
+- Parses timestamps from filenames and shows them below each thumbnail
+- Clicking a thumbnail opens the full-resolution image in a new tab
+- Includes a refresh button to fetch the latest captures
+
+### Capture endpoints
+
+`GET /api/captures` — Returns a JSON array of `.jpg` filenames sorted most-recent-first:
+
+```json
+["2025-Jun-15_14-30-22.jpg", "2025-Jun-15_09-12-05.jpg"]
+```
+
+`GET /api/captures/{filename}` — Serves a capture image with `Content-Type: image/jpeg`. Returns 400 for invalid filenames (path traversal, wrong extension) and 404 for missing files.
 
 ## Running tests
 
