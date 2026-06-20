@@ -26,10 +26,10 @@ public class AudioProcessManager : IAudioProcessManager
         var startInfo = new ProcessStartInfo
         {
             FileName = "mplayer",
-            Arguments = $"-loop 0 {audioFilePath}",
+            Arguments = $"-loop 0 \"{audioFilePath}\"",
             UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
             CreateNoWindow = true
         };
 
